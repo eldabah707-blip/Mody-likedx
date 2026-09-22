@@ -16,7 +16,6 @@ from flask import Flask, request, jsonify, make_response, Response, render_templ
 from flask_cors import CORS
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
-from google.protobuf.json_format import MessageToJson
 
 import requests
 import aiohttp
@@ -269,8 +268,14 @@ def _show_url_for(server_name: str) -> str:
 
 
 def make_request(encrypted, server_name, token):
+    """Fetch the target profile and decode the protobuf response."""
     url = _show_url_for(server_name)
-    edata = bytes.fromhex(encrypted)
+    try:
+        edata = bytes.fromhex(encrypted)
+    except (TypeError, ValueError) as e:
+        print(f"[READ] Invalid encrypted payload: {e}")
+        return None
+
     headers = {
         'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
         'Connection': "Keep-Alive",
@@ -282,29 +287,53 @@ def make_request(encrypted, server_name, token):
         'X-GA': "v1 1",
         'ReleaseVersion': "OB55"
     }
-    resp = requests.post(url, data=edata, headers=headers, verify=False, timeout=30)
-    binary = bytes.fromhex(resp.content.hex())
+
     try:
-        obj = like_count_pb2.Info()
-        obj.ParseFromString(binary)
-        return obj
-    except Exception:
+        resp = requests.post(url, data=edata, headers=headers,
+                             verify=False, timeout=30)
+    except requests.RequestException as e:
+        print(f"[READ] Request failed: {type(e).__name__}: {e}")
         return None
+
+    print(f"[READ] HTTP {resp.status_code} | bytes={len(resp.content)} | server={server_name}")
+    if resp.status_code != 200 or not resp.content:
+        print(f"[READ] Empty/non-200 response: {resp.text[:200]!r}")
+        return None
+
+    obj = like_count_pb2.Info()
+    try:
+        obj.ParseFromString(resp.content)
+    except Exception as e:
+        print(f"[READ] Protobuf decode failed: {type(e).__name__}: {e}")
+        return None
+
+    # Do not convert the protobuf to JSON here. Direct field access keeps
+    # protobuf field names/types intact and avoids JSON naming mismatches.
+    print(f"[READ] Decoded AccountInfo: {obj.AccountInfo}")
+    return obj
 
 
 def _parse_account_info(pb_obj):
+    """Extract UID, nickname and likes directly from the protobuf message."""
     try:
-        if pb_obj is None:
+        if pb_obj is None or not pb_obj.HasField("AccountInfo"):
+            print("[READ] AccountInfo is missing from response")
             return None
-        js = json.loads(MessageToJson(pb_obj))
-        ai = js.get("AccountInfo", {})
-        uid = int(ai.get("UID", 0))
-        likes = int(ai.get("Likes", 0))
-        name = str(ai.get("PlayerNickname", ""))
+
+        ai = pb_obj.AccountInfo
+        uid = int(ai.UID)
+        likes = int(ai.Likes)
+        name = str(ai.PlayerNickname or "").strip()
+
+        print(f"[READ] Target UID={uid} | name={name!r} | likes={likes}")
+
         if uid <= 0:
+            print("[READ] Invalid target UID in response")
             return None
-        return {"uid": uid, "likes": likes, "name": name}
-    except Exception:
+
+        return {"uid": uid, "likes": likes, "name": name or "Unknown"}
+    except Exception as e:
+        print(f"[READ] AccountInfo parse failed: {type(e).__name__}: {e}")
         return None
 
 
