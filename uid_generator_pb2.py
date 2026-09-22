@@ -20,7 +20,7 @@ _sym_db = _symbol_database.Default()
 #DONT CHANGE CREDIT 
 #IF YOU CHANGE MY CREDIT, I'LL FUCK YOUR MOM
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13uid_generator.proto\"5\n\ruid_generator\x12\x10\n\x08krishna_\x18\x01 \x01(\x03\x12\x12\n\nteamXdarks\x18\x02 \x01(\x03\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13uid_generator.proto\"0\n\ruid_generator\x12\x0f\n\x07saturn_\x18\x01 \x01(\x03\x12\x0e\n\x06garena\x18\x02 \x01(\x03\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
