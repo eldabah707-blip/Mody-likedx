@@ -34,6 +34,7 @@ except ImportError:
 
 import like_pb2
 import like_count_pb2
+import visit_count_pb2
 import uid_generator_pb2
 
 app = Flask(__name__)
@@ -191,7 +192,6 @@ def create_protobuf_message(user_id, region):
 
 
 def create_protobuf(uid):
-    # Use the UID request schema from the working reference API.
     m = uid_generator_pb2.uid_generator()
     m.saturn_ = int(uid)
     m.garena = 1
@@ -213,6 +213,7 @@ async def send_request(encrypted_uid, token, url, session_):
         'Expect': "100-continue",
         'X-Unity-Version': "2018.4.11f1",
         'X-GA': "v1 1",
+        'X-GA-SV': "1789580231",
         'ReleaseVersion': "OB55"
     }
     try:
@@ -273,38 +274,24 @@ def make_request(encrypted, server_name, token):
     url = _show_url_for(server_name)
     edata = bytes.fromhex(encrypted)
     headers = {
-        'User-Agent': "UnityPlayer/2018.4.12f1 (UnityWebRequest/1.0, libcurl/8.5.0-DEV)",
-        'Connection': 'Keep-Alive',
-        'Accept-Encoding': 'deflate, gzip',
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-Unity-Version': '2018.4.12f1',
-        'X-GA': 'v1 1',
-        'X-GA-SV': '1789580231',
-        'ReleaseVersion': 'OB55'
+        'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
+        'Connection': "Keep-Alive",
+        'Accept-Encoding': "gzip",
+        'Authorization': f"Bearer {token}",
+        'Content-Type': "application/x-www-form-urlencoded",
+        'Expect': "100-continue",
+        'X-Unity-Version': "2018.4.11f1",
+        'X-GA': "v1 1",
+        'X-GA-SV': "1789580231",
+        'ReleaseVersion': "OB55"
     }
+    resp = requests.post(url, data=edata, headers=headers, verify=False, timeout=30)
+    binary = bytes.fromhex(resp.content.hex())
     try:
-        resp = requests.post(url, data=edata, headers=headers, verify=False, timeout=30)
-        app.logger.info(f"[PERSONALSHOW] status={resp.status_code} bytes={len(resp.content)}")
-
-        if resp.status_code != 200:
-            app.logger.error(f"[PERSONALSHOW] server status={resp.status_code}")
-            return None
-
-        obj = like_count_pb2.Info()
-        obj.ParseFromString(resp.content)
-
-        if obj.HasField("AccountInfo"):
-            ai = obj.AccountInfo
-            app.logger.info(
-                f"[PERSONALSHOW] UID={ai.UID} name={ai.PlayerNickname!r} likes={ai.Likes}"
-            )
-        else:
-            app.logger.error("[PERSONALSHOW] AccountInfo field is missing")
-
+        obj = visit_count_pb2.Info()
+        obj.ParseFromString(binary)
         return obj
-    except Exception as e:
-        app.logger.error(f"[PERSONALSHOW] decode/request error: {e}")
+    except Exception:
         return None
 
 
@@ -312,23 +299,15 @@ def _parse_account_info(pb_obj):
     try:
         if pb_obj is None:
             return None
-
-        # Direct protobuf access, matching the working API:
-        # Info.AccountInfo.{UID, PlayerNickname, Likes}
-        if not pb_obj.HasField("AccountInfo"):
-            return None
-
-        ai = pb_obj.AccountInfo
-        uid = int(ai.UID)
-        likes = int(ai.Likes)
-        name = str(ai.PlayerNickname)
-
+        js = json.loads(MessageToJson(pb_obj))
+        ai = js.get("AccountInfo", {})
+        uid = int(ai.get("UID", 0))
+        likes = int(ai.get("Likes", 0))
+        name = str(ai.get("PlayerNickname", ""))
         if uid <= 0:
             return None
-
         return {"uid": uid, "likes": likes, "name": name}
-    except Exception as e:
-        app.logger.error(f"AccountInfo parse error: {e}")
+    except Exception:
         return None
 
 
