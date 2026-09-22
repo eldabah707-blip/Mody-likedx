@@ -16,6 +16,7 @@ from flask import Flask, request, jsonify, make_response, Response, render_templ
 from flask_cors import CORS
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
+from google.protobuf.json_format import MessageToJson
 
 import requests
 import aiohttp
@@ -190,9 +191,10 @@ def create_protobuf_message(user_id, region):
 
 
 def create_protobuf(uid):
+    # Use the UID request schema from the working reference API.
     m = uid_generator_pb2.uid_generator()
-    m.krishna_ = int(uid)
-    m.teamXdarks = 1
+    m.saturn_ = int(uid)
+    m.garena = 1
     return m.SerializeToString()
 
 
@@ -254,7 +256,7 @@ def _like_url_for(server_name: str) -> str:
     elif s in {"BR", "US", "SAC", "NA"}:
         return "https://client.us.freefiremobile.com/LikeProfile"
     else:
-        return "https://clientbp.ppmainecoonghj.com/LikeProfile"
+        return "https://clientbp.ggpolarbear.com/LikeProfile"
 
 
 def _show_url_for(server_name: str) -> str:
@@ -264,76 +266,69 @@ def _show_url_for(server_name: str) -> str:
     elif s in {"BR", "US", "SAC", "NA"}:
         return "https://client.us.freefiremobile.com/GetPlayerPersonalShow"
     else:
-        return "https://clientbp.ppmainecoonghj.com/GetPlayerPersonalShow"
+        return "https://clientbp.ggpolarbear.com/GetPlayerPersonalShow"
 
 
 def make_request(encrypted, server_name, token):
-    """Fetch the target profile and decode the protobuf response."""
     url = _show_url_for(server_name)
-    try:
-        edata = bytes.fromhex(encrypted)
-    except (TypeError, ValueError) as e:
-        print(f"[READ] Invalid encrypted payload: {e}")
-        return None
-
+    edata = bytes.fromhex(encrypted)
     headers = {
-        'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
-        'Connection': "Keep-Alive",
-        'Accept-Encoding': "gzip",
-        'Authorization': f"Bearer {token}",
-        'Content-Type': "application/x-www-form-urlencoded",
-        'Expect': "100-continue",
-        'X-Unity-Version': "2018.4.11f1",
-        'X-GA': "v1 1",
-        'ReleaseVersion': "OB55"
+        'User-Agent': "UnityPlayer/2018.4.12f1 (UnityWebRequest/1.0, libcurl/8.5.0-DEV)",
+        'Connection': 'Keep-Alive',
+        'Accept-Encoding': 'deflate, gzip',
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Unity-Version': '2018.4.12f1',
+        'X-GA': 'v1 1',
+        'X-GA-SV': '1789580231',
+        'ReleaseVersion': 'OB55'
     }
-
     try:
-        resp = requests.post(url, data=edata, headers=headers,
-                             verify=False, timeout=30)
-    except requests.RequestException as e:
-        print(f"[READ] Request failed: {type(e).__name__}: {e}")
-        return None
+        resp = requests.post(url, data=edata, headers=headers, verify=False, timeout=30)
+        app.logger.info(f"[PERSONALSHOW] status={resp.status_code} bytes={len(resp.content)}")
 
-    print(f"[READ] HTTP {resp.status_code} | bytes={len(resp.content)} | server={server_name}")
-    if resp.status_code != 200 or not resp.content:
-        print(f"[READ] Empty/non-200 response: {resp.text[:200]!r}")
-        return None
+        if resp.status_code != 200:
+            app.logger.error(f"[PERSONALSHOW] server status={resp.status_code}")
+            return None
 
-    obj = like_count_pb2.Info()
-    try:
+        obj = like_count_pb2.Info()
         obj.ParseFromString(resp.content)
-    except Exception as e:
-        print(f"[READ] Protobuf decode failed: {type(e).__name__}: {e}")
-        return None
 
-    # Do not convert the protobuf to JSON here. Direct field access keeps
-    # protobuf field names/types intact and avoids JSON naming mismatches.
-    print(f"[READ] Decoded AccountInfo: {obj.AccountInfo}")
-    return obj
+        if obj.HasField("AccountInfo"):
+            ai = obj.AccountInfo
+            app.logger.info(
+                f"[PERSONALSHOW] UID={ai.UID} name={ai.PlayerNickname!r} likes={ai.Likes}"
+            )
+        else:
+            app.logger.error("[PERSONALSHOW] AccountInfo field is missing")
+
+        return obj
+    except Exception as e:
+        app.logger.error(f"[PERSONALSHOW] decode/request error: {e}")
+        return None
 
 
 def _parse_account_info(pb_obj):
-    """Extract UID, nickname and likes directly from the protobuf message."""
     try:
-        if pb_obj is None or not pb_obj.HasField("AccountInfo"):
-            print("[READ] AccountInfo is missing from response")
+        if pb_obj is None:
+            return None
+
+        # Direct protobuf access, matching the working API:
+        # Info.AccountInfo.{UID, PlayerNickname, Likes}
+        if not pb_obj.HasField("AccountInfo"):
             return None
 
         ai = pb_obj.AccountInfo
         uid = int(ai.UID)
         likes = int(ai.Likes)
-        name = str(ai.PlayerNickname or "").strip()
-
-        print(f"[READ] Target UID={uid} | name={name!r} | likes={likes}")
+        name = str(ai.PlayerNickname)
 
         if uid <= 0:
-            print("[READ] Invalid target UID in response")
             return None
 
-        return {"uid": uid, "likes": likes, "name": name or "Unknown"}
+        return {"uid": uid, "likes": likes, "name": name}
     except Exception as e:
-        print(f"[READ] AccountInfo parse failed: {type(e).__name__}: {e}")
+        app.logger.error(f"AccountInfo parse error: {e}")
         return None
 
 
