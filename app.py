@@ -53,7 +53,7 @@ OB_VERSION     = "OB54"
 LOGIN_URL      = "https://loginbp.ggblueshark.com"
 
 # ---------- JWT Token API ----------
-JWT_API_BASE = "http://38.29.171.32:2020/token"
+JWT_API_BASE = "https://mody-panel-jwt.vercel.app/token?uid=YOUR_UID&password=YOUR_PASSWORD"
 
 # ---------- Workers / Burst ----------
 JWT_WORKERS   = 60
